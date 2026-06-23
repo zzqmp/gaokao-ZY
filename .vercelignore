@@ -1,0 +1,16 @@
+# Vercel 部署时排除大 JSON 数据文件
+# 生产环境通过 PostgreSQL 查询
+data/admission/
+data/batch_lines.json
+data/province-meta.json
+
+# 保留 provinces.json（很小，用于冷启动快速获取省份列表）
+!data/provinces.json
+
+# 保留 score_rank 数据（~7.6MB，在 Vercel 50MB 限制内）
+# 如果使用 PostgreSQL，可改为 data/score_rank/*.json
+
+# 排除开发辅助文件
+scripts/
+*.py
+*.md

@@ -1,0 +1,19 @@
+{
+  "name": "gaokao-helper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "高考志愿数据查询 - Next.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "python scripts/export_data.py && next build",
+    "start": "next start",
+    "export-data": "python scripts/export_data.py"
+  },
+  "dependencies": {
+    "@vercel/postgres": "^0.10.0",
+    "fast-xml-parser": "^5.8.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
