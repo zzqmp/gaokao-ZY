@@ -1,15 +1,12 @@
 /**
  * 数据库连接状态检查
  */
-import { Pool } from '@neondatabase/serverless';
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const checks = {};
 
-  // 1. 环境变量
   const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   checks.hasEnv = !!dbUrl;
 
@@ -22,9 +19,9 @@ export async function GET() {
     });
   }
 
-  // 2. 尝试连接
   try {
-    const pool = new Pool({ connectionString: dbUrl });
+    const { Pool } = new Function('m', 'return require(m)')('pg');
+    const pool = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
     const { rows } = await pool.query('SELECT COUNT(*) as cnt FROM score_rank');
     const count = parseInt(rows[0]?.cnt || '0');
     checks.connected = true;
@@ -32,26 +29,30 @@ export async function GET() {
     checks.hasData = count > 0;
 
     if (count > 0) {
-      const sample = await pool.query('SELECT province, year, classify, score, "cumulativeRank" FROM score_rank LIMIT 3');
-      checks.sample = sample;
+      const sample = await pool.query(
+        'SELECT province, year, classify, score, "cumulativeRank" FROM score_rank LIMIT 3'
+      );
+      checks.sample = sample.rows;
 
+      await pool.end();
       return Response.json({
         ok: true,
-        source: 'PostgreSQL (Neon)',
+        source: 'PostgreSQL (pg)',
         message: '✅ 数据库连接正常，有数据',
         checks,
       });
     } else {
+      await pool.end();
       return Response.json({
         ok: false,
-        source: 'PostgreSQL (Neon)',
+        source: 'PostgreSQL (pg)',
         message: '数据库已连接但 score_rank 表为空，需先运行迁移脚本',
         checks,
       });
     }
   } catch (err) {
     checks.connected = false;
-    checks.error = err.message;
+    checks.error = err.message || String(err);
     return Response.json({
       ok: false,
       source: 'JSON（降级）',
