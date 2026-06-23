@@ -25,14 +25,14 @@ export async function GET() {
   // 2. 尝试连接
   try {
     const sql = neon(dbUrl);
-    const rows = await sql('SELECT COUNT(*) as cnt FROM score_rank');
+    const rows = await sql.query('SELECT COUNT(*) as cnt FROM score_rank');
     const count = parseInt(rows[0]?.cnt || '0');
     checks.connected = true;
     checks.scoreRankCount = count;
     checks.hasData = count > 0;
 
     if (count > 0) {
-      const sample = await sql('SELECT province, year, classify, score, "cumulativeRank" FROM score_rank LIMIT 3');
+      const sample = await sql.query('SELECT province, year, classify, score, "cumulativeRank" FROM score_rank LIMIT 3');
       checks.sample = sample;
 
       return Response.json({
