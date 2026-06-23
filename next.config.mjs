@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ['pg'],
+  serverExternalPackages: ['@neondatabase/serverless'],
 };
 
 export default nextConfig;
