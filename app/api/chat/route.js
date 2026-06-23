@@ -4,6 +4,8 @@
  */
 import { queryAndReply, buildAiPrompt, getAvailableYears, buildFallbackReply } from '@/lib/gaokao-query';
 import { getScoreRankIndex } from '@/lib/data';
+import { auth } from '@/lib/auth'
+import { consumeCredit } from '@/lib/db'
 
 // ====== 在线搜索 ======
 
@@ -129,6 +131,23 @@ async function buildAiPromptWithSearch(info, data, years, webResults) {
 
 export async function POST(request) {
   try {
+    // === 积分检查（管理员不扣费） ===
+    const session = await auth()
+    if (!session?.user?.id) {
+      return Response.json({ reply: '请先登录', complete: false }, { status: 401 })
+    }
+    let creditResult = null
+    if (session.user.role !== 'admin') {
+      creditResult = await consumeCredit(session.user.id)
+      if (!creditResult.ok) {
+        return Response.json({
+          reply: '❌ ' + (creditResult.message || '积分不足'),
+          complete: false,
+          credits: creditResult.credits,
+        })
+      }
+    }
+
     const { text, history = [] } = await request.json();
     if (!text || !text.trim()) {
       return Response.json({ reply: '请说说你的高考情况，我来帮你分析。', complete: false });
@@ -177,14 +196,14 @@ export async function POST(request) {
         if (resp.ok) {
           const json = await resp.json();
           const reply = json.choices?.[0]?.message?.content;
-          if (reply) return Response.json({ reply, complete: true, collected: { ...info, years } });
+          if (reply) return Response.json({ reply, complete: true, collected: { ...info, years }, credits: creditResult?.credits ?? 0 });
         }
       } catch (_) {}
     }
 
     // 降级：纯数据回复
     const fallback = buildFallbackReply(info, data, years);
-    return Response.json({ reply: fallback.fullText, complete: true, collected: { ...info, years } });
+    return Response.json({ reply: fallback.fullText, complete: true, collected: { ...info, years }, credits: creditResult?.credits ?? 0 });
 
   } catch (e) {
     return Response.json({ reply: '抱歉，处理出错了，请重试。', error: e.message, complete: false });
