@@ -5,7 +5,8 @@
 import { getToken } from 'next-auth/jwt'
 import { NextResponse } from 'next/server'
 
-const secret = process.env.NEXTAUTH_SECRET || 'fallback-secret-do-not-use-in-prod'
+// 必须与 lib/auth.js 中的 secret 一致，否则 JWT 验证失败
+const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || 'HX5KqqQ07/h0Ty5YCAI0p6IzEh6VO8yyjnkh64Bm81g='
 
 // 无需登录即可访问的路径前缀
 const PUBLIC_PATHS = ['/login', '/register', '/api/auth', '/api/debug']
