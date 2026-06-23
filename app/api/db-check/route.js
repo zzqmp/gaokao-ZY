@@ -1,7 +1,7 @@
 /**
  * 数据库连接状态检查
  */
-import { neon } from '@neondatabase/serverless';
+import { Pool } from '@neondatabase/serverless';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,15 +24,15 @@ export async function GET() {
 
   // 2. 尝试连接
   try {
-    const sql = neon(dbUrl);
-    const rows = await sql.query('SELECT COUNT(*) as cnt FROM score_rank');
+    const pool = new Pool({ connectionString: dbUrl });
+    const { rows } = await pool.query('SELECT COUNT(*) as cnt FROM score_rank');
     const count = parseInt(rows[0]?.cnt || '0');
     checks.connected = true;
     checks.scoreRankCount = count;
     checks.hasData = count > 0;
 
     if (count > 0) {
-      const sample = await sql.query('SELECT province, year, classify, score, "cumulativeRank" FROM score_rank LIMIT 3');
+      const sample = await pool.query('SELECT province, year, classify, score, "cumulativeRank" FROM score_rank LIMIT 3');
       checks.sample = sample;
 
       return Response.json({
