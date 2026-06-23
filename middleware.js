@@ -24,7 +24,10 @@ export async function middleware(req) {
   }
 
   // 检查 JWT token（不访问数据库）
-  const token = await getToken({ req, secret })
+  // 注意：Vercel 使用 HTTPS，Auth.js v5 会设置 __Secure-authjs.session-token cookie
+  // 但 getToken 默认 secureCookie=false，导致查找 authjs.session-token（无 __Secure- 前缀）找不到
+  // 必须显式传入 secureCookie: true 才能匹配正确的 cookie 名
+  const token = await getToken({ req, secret, secureCookie: true })
 
   if (!token) {
     const loginUrl = new URL('/login', req.nextUrl.origin)
