@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 export default function AdminUsersPage() {
   const { data: session, status } = useSession()
@@ -94,7 +95,10 @@ export default function AdminUsersPage() {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-bold">⚙️ 管理后台</h1>
-            <span className="text-xs text-slate-300">用户管理</span>
+            <nav className="flex gap-3 text-sm">
+              <span className="text-white font-medium border-b-2 border-white">用户管理</span>
+              <Link href="/admin/models" className="text-slate-300 hover:text-white">模型配置</Link>
+            </nav>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-300">{session.user.name}</span>

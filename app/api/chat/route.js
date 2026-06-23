@@ -5,7 +5,7 @@
 import { queryAndReply, buildAiPrompt, getAvailableYears, buildFallbackReply } from '@/lib/gaokao-query';
 import { getScoreRankIndex } from '@/lib/data';
 import { auth } from '@/lib/auth'
-import { consumeCredit } from '@/lib/db'
+import { consumeCredit, getEnabledModels } from '@/lib/db'
 
 // ====== 在线搜索 ======
 
@@ -169,16 +169,26 @@ export async function POST(request) {
       webResults = await searchWeb(searchQuery);
     }
 
-    // 调用 DeepSeek AI
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    const apiModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+    // ====== AI 模型调用（管理员后台配置） ======
+    // 从数据库获取启用的模型配置，若无则回退到环境变量
+    let modelConfig = null
+    try {
+      const enabledModels = await getEnabledModels()
+      if (enabledModels?.length > 0) {
+        modelConfig = enabledModels[0]
+      }
+    } catch (_) {}
+
+    const apiKey = modelConfig?.api_key || process.env.DEEPSEEK_API_KEY
+    const apiUrl = modelConfig?.api_url || 'https://api.deepseek.com/v1/chat/completions'
+    const apiModel = modelConfig?.model_id || process.env.DEEPSEEK_MODEL || 'deepseek-chat'
 
     if (apiKey && apiKey !== 'sk-your-key-here') {
       const systemPrompt = buildSystemPrompt();
       const userPrompt = await buildAiPromptWithSearch(info, data, years, webResults);
 
       try {
-        const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        const resp = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({
