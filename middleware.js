@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server'
 const secret = process.env.NEXTAUTH_SECRET || 'fallback-secret-do-not-use-in-prod'
 
 // 无需登录即可访问的路径前缀
-const PUBLIC_PATHS = ['/login', '/register', '/api/auth']
+const PUBLIC_PATHS = ['/login', '/register', '/api/auth', '/api/debug']
 
 export async function middleware(req) {
   const { pathname } = req.nextUrl
