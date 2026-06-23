@@ -1,6 +1,9 @@
 /**
  * 数据库连接状态检查
  */
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +23,7 @@ export async function GET() {
   }
 
   try {
-    const { Pool } = new Function('m', 'return require(m)')('pg');
+    const { Pool } = _require('pg');
     const pool = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
     const { rows } = await pool.query('SELECT COUNT(*) as cnt FROM score_rank');
     const count = parseInt(rows[0]?.cnt || '0');
