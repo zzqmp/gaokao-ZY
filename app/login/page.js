@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -15,6 +15,23 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [serverOk, setServerOk] = useState(true)
+
+  // 页面加载时检测认证服务是否可用
+  useEffect(() => {
+    fetch('/api/auth/providers')
+      .then(r => r.json())
+      .then(data => {
+        if (!data?.credentials) {
+          setServerOk(false)
+          setError('⚠️ 登录服务未就绪（数据库连接或配置异常），请联系管理员')
+        }
+      })
+      .catch(() => {
+        setServerOk(false)
+        setError('⚠️ 无法连接到服务器，请检查网络')
+      })
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -31,19 +48,29 @@ function LoginForm() {
       if (result?.error) {
         if (result.error === 'CredentialsSignin') {
           setError('邮箱/用户名或密码错误')
+        } else if (result.error === 'Configuration') {
+          setError('⚠️ 服务初始化失败——可能数据库未连接，请联系管理员')
         } else if (result.error.includes('频繁')) {
           setError(result.error)
         } else {
           setError(result.error || '登录失败')
         }
+        console.error('[login] signIn error:', result)
+        return
+      }
+
+      if (!result?.ok) {
+        console.error('[login] unexpected signIn result:', result)
+        setError('登录服务异常，请稍后再试')
         return
       }
 
       // 使用全页面跳转确保 session cookie 被服务端正确识别
       // router.push + router.refresh 在 Next.js 15 中可能因竞态条件导致页面卡在登录页
       window.location.href = callbackUrl
-    } catch {
-      setError('网络错误，请重试')
+    } catch (err) {
+      console.error('[login] network/unknown error:', err)
+      setError('网络错误，请检查连接后重试')
     } finally {
       setLoading(false)
     }
@@ -92,7 +119,7 @@ function LoginForm() {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !serverOk}
               className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium text-sm transition-colors"
             >
               {loading ? '登录中...' : '登 录'}
