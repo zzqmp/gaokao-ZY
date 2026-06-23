@@ -1,9 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
-  outputFileTracingExcludes: {
-    '*': ['data/admission/**', 'data/score_rank/**'],
-  },
+  serverExternalPackages: ['pg'],
 };
 
 export default nextConfig;
