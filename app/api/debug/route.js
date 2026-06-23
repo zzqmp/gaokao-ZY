@@ -12,6 +12,8 @@ export async function GET() {
     env: {
       DATABASE_URL: process.env.DATABASE_URL ? '✅ 已设置' : '❌ 未设置',
       POSTGRES_URL: process.env.POSTGRES_URL ? '✅ 已设置' : '❌ 未设置',
+      AUTH_SECRET: process.env.AUTH_SECRET ? '✅ 已设置' : '❌ 未设置',
+      NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET ? '✅ 已设置' : '❌ 未设置',
       VERCEL_ENV: process.env.VERCEL_ENV || 'local',
       NODE_ENV: process.env.NODE_ENV,
     },
