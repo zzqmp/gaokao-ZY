@@ -89,15 +89,13 @@ export async function POST(request) {
       mailResult = { ok: false, message: '邮件发送异常: ' + mailErr.message }
     }
 
-    // 开发模式或无邮件配置时，密码在响应中返回
-    const isDev = !process.env.MAIL_HOST
     return Response.json({
       ok: true,
       message: mailResult.ok
         ? '🎉 注册成功！密码已发送到您的邮箱'
-        : '🎉 注册成功！' + (isDev ? ` 开发模式密码：${password}（请尽快登录修改）` : ' 但邮件发送失败，请联系管理员'),
+        : `🎉 注册成功！密码：${password}（请尽快登录修改）`,
       user: { id: user.id, email: user.email, username: user.username },
-      ...(isDev ? { devPassword: password } : {}),
+      ...(mailResult.ok ? {} : { password }),
     })
   } catch (err) {
     if (err.message?.includes('已被注册') || err.message?.includes('已被使用')) {

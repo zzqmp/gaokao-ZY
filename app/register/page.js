@@ -50,10 +50,10 @@ export default function RegisterPage() {
           <h1 className="text-xl font-bold text-slate-900 mb-2">注册成功！</h1>
           <p className="text-sm text-slate-600 mb-4">{result?.message}</p>
 
-          {result?.devPassword && (
+          {result?.password && (
             <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-left">
-              <p className="text-amber-800 font-medium mb-1">⚠️ 开发模式密码</p>
-              <p className="text-amber-700 font-mono text-lg text-center tracking-wider">{result.devPassword}</p>
+              <p className="text-amber-800 font-medium mb-1">⚠️ 邮件发送失败，请记录密码</p>
+              <p className="text-amber-700 font-mono text-lg text-center tracking-wider select-all">{result.password}</p>
               <p className="text-amber-600 text-xs mt-1">请尽快登录后修改密码</p>
             </div>
           )}
