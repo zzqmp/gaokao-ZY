@@ -170,10 +170,24 @@ export async function POST(request) {
     }
 
     // ============================================================
-    // 正常路径：处理消息（数据查询同步，<5s 返回）
+    // 正常路径：处理消息（数据查询同步）
+    // 加 4 秒硬超时，确保 5 秒内一定有回复返回
     // ============================================================
     if (!reply) {
-      reply = await handleMessage(message);
+      const TIMEOUT_MS = 4000;
+      const result = await Promise.race([
+        handleMessage(message).then(r => ({ ok: true, reply: r })),
+        new Promise(r => setTimeout(() => r({ ok: false }), TIMEOUT_MS)),
+      ]);
+
+      if (result.ok) {
+        reply = result.reply;
+      } else {
+        // 超时了 → 立即返回"处理中"
+        // 数据查询结果会通过 AI 分析流程（下方 AI dispatch）异步完成并存储，
+        // 用户下条消息时由方案 A 兜底合并送达
+        reply = { type: 'text', content: '⏳ 正在查询数据，请稍后发送任意消息获取完整结果。' };
+      }
     }
 
     // ============================================================
