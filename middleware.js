@@ -9,7 +9,7 @@ import { NextResponse } from 'next/server'
 const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || 'HX5KqqQ07/h0Ty5YCAI0p6IzEh6VO8yyjnkh64Bm81g='
 
 // 无需登录即可访问的路径前缀
-const PUBLIC_PATHS = ['/login', '/register', '/api/auth', '/api/debug']
+const PUBLIC_PATHS = ['/login', '/register', '/api/auth', '/api/debug', '/api/wechat']
 
 export async function middleware(req) {
   const { pathname } = req.nextUrl
