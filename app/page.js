@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 
@@ -12,7 +12,6 @@ export default function Page() {
   const [chatLoading, setChatLoading] = useState(false)
   const [remainingCredits, setRemainingCredits] = useState(null)
   const [showPwdMenu, setShowPwdMenu] = useState(false)
-  const composingRef = useRef(false)
 
   // 首次登录强制改密
   useEffect(() => {
@@ -156,9 +155,7 @@ export default function Page() {
               <input
                 type="text"
                 value={inputText}
-                onChange={e => { if (!composingRef.current) setInputText(e.target.value) }}
-                onCompositionStart={() => { composingRef.current = true }}
-                onCompositionEnd={e => { composingRef.current = false; setInputText(e.target.value) }}
+                onChange={e => setInputText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSend() }}
                 disabled={chatLoading}
                 className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-slate-50"
