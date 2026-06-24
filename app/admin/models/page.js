@@ -250,7 +250,7 @@ export default function AdminModelsPage() {
                 {/* 展开详情（编辑模式） */}
                 {editingId === m.id && showForm && (
                   <div className="mt-4 pt-4 border-t border-slate-100">
-                    <FormContent />
+                    <FormContent form={form} setForm={setForm} />
                   </div>
                 )}
               </div>
@@ -264,7 +264,7 @@ export default function AdminModelsPage() {
             <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
               <h2 className="text-lg font-bold text-slate-900 mb-4">添加新模型</h2>
               <form onSubmit={handleSave} className="space-y-4">
-                <FormContent />
+                <FormContent form={form} setForm={setForm} />
                 <div className="flex gap-2 pt-2">
                   <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
                     保存
@@ -282,58 +282,72 @@ export default function AdminModelsPage() {
     </div>
   )
 
-  /** 表单内容 */
-  function FormContent() {
-    return (
-      <>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">名称 *</label>
-            <input type="text" required value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="例如: DeepSeek V3"/>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">模型 ID *</label>
-            <input type="text" required value={form.model_id}
-              onChange={e => setForm({ ...form, model_id: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="例如: deepseek-chat"/>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">供应商</label>
-            <select value={form.provider}
-              onChange={e => setForm({ ...form, provider: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-              <option value="custom">自定义</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">API 密钥</label>
-            <input type="text" value={form.api_key}
-              onChange={e => setForm({ ...form, api_key: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
-              placeholder="留空则使用环境变量"/>
-          </div>
+}
+
+/** 支持 IME 中文输入的输入框 */
+function SmartInput({ onChange, ...rest }) {
+  const [composing, setComposing] = useState(false)
+  return (
+    <input
+      {...rest}
+      onChange={e => { if (!composing && onChange) onChange(e) }}
+      onCompositionStart={() => setComposing(true)}
+      onCompositionEnd={e => { setComposing(false); if (onChange) onChange(e) }}
+    />
+  )
+}
+
+/** 表单内容 */
+function FormContent({ form, setForm }) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">名称 *</label>
+          <SmartInput type="text" required value={form.name}
+            onChange={e => setForm({ ...form, name: e.target.value })}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="例如: DeepSeek V3"/>
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">API 地址</label>
-          <input type="text" value={form.api_url}
-            onChange={e => setForm({ ...form, api_url: e.target.value })}
+          <label className="block text-xs font-medium text-slate-600 mb-1">模型 ID *</label>
+          <SmartInput type="text" required value={form.model_id}
+            onChange={e => setForm({ ...form, model_id: e.target.value })}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="例如: deepseek-chat"/>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">供应商</label>
+          <select value={form.provider}
+            onChange={e => setForm({ ...form, provider: e.target.value })}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="deepseek">DeepSeek</option>
+            <option value="openai">OpenAI</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">API 密钥</label>
+          <SmartInput type="text" value={form.api_key}
+            onChange={e => setForm({ ...form, api_key: e.target.value })}
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
-            placeholder="https://api.deepseek.com/v1/chat/completions"/>
+            placeholder="留空则使用环境变量"/>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">备注</label>
-          <input type="text" value={form.note}
-            onChange={e => setForm({ ...form, note: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-            placeholder="例如: 测试模型，仅用于验证"/>
-        </div>
-      </>
-    )
-  }
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">API 地址</label>
+        <SmartInput type="text" value={form.api_url}
+          onChange={e => setForm({ ...form, api_url: e.target.value })}
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+          placeholder="https://api.deepseek.com/v1/chat/completions"/>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">备注</label>
+        <SmartInput type="text" value={form.note}
+          onChange={e => setForm({ ...form, note: e.target.value })}
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+          placeholder="例如: 测试模型，仅用于验证"/>
+      </div>
+    </>
+  )
 }
