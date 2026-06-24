@@ -18,6 +18,9 @@ import {
   verifySignature,
 } from '@/lib/wechat/crypto';
 import { handleMessage } from '@/lib/wechat/handler';
+import { queryAndReply, buildAiPrompt } from '@/lib/gaokao-query';
+import { sendCustomerServiceText } from '@/lib/wechat/access-token';
+import { findOrCreateWechatUser } from '@/lib/db';
 import {
   buildEncryptedResponseXml,
   buildReplyXml,
@@ -51,6 +54,52 @@ function textResponse(body, status = 200) {
     status,
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
+}
+
+/**
+ * 异步生成 AI 分析并通过客服消息发送（不阻塞主回复）
+ */
+async function sendAiAnalysisAsync(config, openId, text) {
+  try {
+    // 只对高考查询类消息做 AI 分析
+    if (!text || !/\d{3}\s*分/.test(text)) return
+
+    const result = await queryAndReply(text)
+    if (!result?.complete) return
+
+    const userPrompt = await buildAiPrompt(result.info, result.data, result.years)
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey || apiKey === 'sk-your-key-here') return
+
+    const resp = await fetch(
+      process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+          messages: [
+            { role: 'system', content: '你是一个高考志愿填报助手，基于提供的真实数据帮考生分析分数位次。数据均为历史年份，禁止承诺录取。语言通俗易懂。' },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 1000,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    )
+    if (!resp.ok) return
+    const json = await resp.json()
+    const content = json.choices?.[0]?.message?.content
+    if (!content) return
+
+    const prefix = '🤖 AI 分析结果：\n\n'
+    const fullMsg = prefix + (content.length > 1800 ? content.slice(0, 1760) + '\n\n……（已截断）' : content)
+
+    await sendCustomerServiceText(config.appId, config.appSecret, openId, fullMsg)
+  } catch (err) {
+    console.error('[wechat] ai analysis failed:', err.message)
+  }
 }
 
 /**
@@ -127,18 +176,28 @@ export async function POST(request) {
       return textResponse('success');
     }
 
+    let response;
+
     if (useEncryption && config.encodingAesKey) {
       const responseNonce = randomBytes(8).toString('hex');
       const responseTimestamp = Math.floor(Date.now() / 1000).toString();
       const encryptedReply = encryptMessage(config.encodingAesKey, config.appId, replyXml);
       const msgSig = signEncryptedReply(config.token, responseTimestamp, responseNonce, encryptedReply);
 
-      return xmlResponse(
+      response = xmlResponse(
         buildEncryptedResponseXml(encryptedReply, msgSig, responseTimestamp, responseNonce),
       );
+    } else {
+      response = xmlResponse(replyXml);
     }
 
-    return xmlResponse(replyXml);
+    // 异步发送 AI 分析（不阻塞主回复）
+    const openId = message.FromUserName
+    if (openId && reply?.type === 'text') {
+      sendAiAnalysisAsync(config, openId, message.Content).catch(() => {})
+    }
+
+    return response;
   } catch (error) {
     console.error('[wechat POST]', error);
     // 微信要求即使出错也要返回 success
