@@ -17,10 +17,8 @@ import {
   verifyMsgSignature,
   verifySignature,
 } from '@/lib/wechat/crypto';
-import { handleMessage } from '@/lib/wechat/handler';
-import { queryAndReply, buildAiPrompt } from '@/lib/gaokao-query';
-import { sendCustomerServiceText } from '@/lib/wechat/access-token';
-import { findOrCreateWechatUser } from '@/lib/db';
+import { handleMessage, runAiAnalysisAndStore } from '@/lib/wechat/handler';
+import { savePendingReply, getPendingReplyByMsgId, getUserPendingReply, deletePendingReply, cleanExpiredPendingReplies } from '@/lib/db';
 import {
   buildEncryptedResponseXml,
   buildReplyXml,
@@ -57,52 +55,6 @@ function textResponse(body, status = 200) {
 }
 
 /**
- * 异步生成 AI 分析并通过客服消息发送（不阻塞主回复）
- */
-async function sendAiAnalysisAsync(config, openId, text) {
-  try {
-    // 只对高考查询类消息做 AI 分析
-    if (!text || !/\d{3}\s*分/.test(text)) return
-
-    const result = await queryAndReply(text)
-    if (!result?.complete) return
-
-    const userPrompt = await buildAiPrompt(result.info, result.data, result.years)
-    const apiKey = process.env.DEEPSEEK_API_KEY
-    if (!apiKey || apiKey === 'sk-your-key-here') return
-
-    const resp = await fetch(
-      process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-          messages: [
-            { role: 'system', content: '你是一个高考志愿填报助手，基于提供的真实数据帮考生分析分数位次。数据均为历史年份，禁止承诺录取。语言通俗易懂。' },
-            { role: 'user', content: userPrompt },
-          ],
-          temperature: 0.3,
-          max_tokens: 1000,
-        }),
-        signal: AbortSignal.timeout(15000),
-      },
-    )
-    if (!resp.ok) return
-    const json = await resp.json()
-    const content = json.choices?.[0]?.message?.content
-    if (!content) return
-
-    const prefix = '🤖 AI 分析结果：\n\n'
-    const fullMsg = prefix + (content.length > 1800 ? content.slice(0, 1760) + '\n\n……（已截断）' : content)
-
-    await sendCustomerServiceText(config.appId, config.appSecret, openId, fullMsg)
-  } catch (err) {
-    console.error('[wechat] ai analysis failed:', err.message)
-  }
-}
-
-/**
  * 微信服务器配置验证（GET）
  * 在公众号后台填写服务器 URL 后，微信会发送 GET 请求验证
  */
@@ -135,6 +87,10 @@ export async function GET(request) {
 /**
  * 接收用户消息并被动回复（POST）
  * 微信要求 5 秒内返回，否则不会展示回复
+ *
+ * 混合策略（方案 A + B）：
+ *   B: 微信重试时从 DB 取已完成的 AI 分析结果
+ *   A: AI 分析结果存 DB，用户下条消息时自动合并送达
  */
 export async function POST(request) {
   try {
@@ -161,15 +117,94 @@ export async function POST(request) {
     }
 
     const message = parseIncomingXml(messageXml);
+    const { MsgType, Content, Event, FromUserName, MsgId } = message;
 
     console.info('[wechat POST]', {
-      msgType: message.MsgType,
-      event: message.Event,
-      fromUser: message.FromUserName?.slice(0, 8),
-      contentLength: message.Content?.length,
+      msgType: MsgType,
+      event: Event,
+      fromUser: FromUserName?.slice(0, 8),
+      contentLength: Content?.length,
+      msgId: MsgId,
     });
 
-    const reply = await handleMessage(message);
+    // 顺手清理过期 pending 记录（24h 以上），不阻塞
+    cleanExpiredPendingReplies().catch(() => {});
+
+    // ============================================================
+    // 方案 B：微信重试路径
+    // 如果 MsgId 已在 DB 中且 AI 分析完成，直接返回缓存结果
+    // ============================================================
+    let reply;
+    let skipHandleMessage = false;
+    const msgId = MsgId ? String(MsgId) : null;
+
+    if (msgId && MsgType === 'text' && Content) {
+      const cached = await getPendingReplyByMsgId(msgId).catch(() => null);
+      if (cached) {
+        if (cached.status === 'done') {
+          // AI 分析已完成 → 返回缓存结果，跳过 handleMessage（避免重复扣积分）
+          reply = { type: 'text', content: cached.reply_text };
+          skipHandleMessage = true;
+          await deletePendingReply(msgId).catch(() => {});
+          console.info('[wechat retry] delivered cached AI reply for msgId:', msgId);
+        } else if (cached.status === 'pending') {
+          // AI 还在运行 → 短轮询等结果
+          for (let i = 0; i < 6; i++) {
+            await new Promise(r => setTimeout(r, 500));
+            const updated = await getPendingReplyByMsgId(msgId).catch(() => null);
+            if (updated?.status === 'done') {
+              reply = { type: 'text', content: updated.reply_text };
+              skipHandleMessage = true;
+              await deletePendingReply(msgId).catch(() => {});
+              console.info('[wechat retry] AI completed during poll for msgId:', msgId);
+              break;
+            }
+          }
+          // 轮询结束仍未完成 → 返回"处理中"让微信继续重试
+          if (!reply) {
+            reply = { type: 'text', content: '⏳ 分析结果正在生成中，请稍候...' };
+            skipHandleMessage = true;
+          }
+        }
+      }
+    }
+
+    // ============================================================
+    // 正常路径：处理消息（数据查询同步，<5s 返回）
+    // ============================================================
+    if (!reply) {
+      reply = await handleMessage(message);
+    }
+
+    // ============================================================
+    // AI 分析异步调度
+    // 高考查询消息在返回数据结果后，后台启动 AI 分析
+    // ============================================================
+    const isScoreQuery = !!(Content && /\d{3}\s*分/.test(Content));
+    if (!skipHandleMessage && FromUserName && isScoreQuery && reply?.type === 'text') {
+      const uid = msgId || `${FromUserName}_${Date.now()}`;
+      // 存 pending 记录（供微信重试路径使用）
+      await savePendingReply(uid, FromUserName, Content).catch(() => {});
+      // 异步执行 AI 分析，完成后自动 updatePendingReply
+      runAiAnalysisAndStore(Content, FromUserName, uid).catch(() => {});
+    }
+
+    // ============================================================
+    // 方案 A 兜底：合并没有通过微信重试送达的 AI 结果
+    // 如果用户有来自之前查询的未送达 AI 结果，追加到本次回复
+    // ============================================================
+    if (!skipHandleMessage && FromUserName && reply?.type === 'text') {
+      const pending = await getUserPendingReply(FromUserName).catch(() => null);
+      if (pending && pending.msg_id !== msgId) {
+        reply.content = reply.content + '\n\n---\n' + pending.reply_text;
+        await deletePendingReply(pending.msg_id).catch(() => {});
+        console.info('[wechat pending] merged pending AI reply for user:', FromUserName.slice(0, 8));
+      }
+    }
+
+    // ============================================================
+    // 构建 XML 响应
+    // ============================================================
     const replyXml = buildReplyXml(message, reply);
 
     if (!replyXml) {
@@ -189,12 +224,6 @@ export async function POST(request) {
       );
     } else {
       response = xmlResponse(replyXml);
-    }
-
-    // 异步发送 AI 分析（不阻塞主回复）
-    const openId = message.FromUserName
-    if (openId && reply?.type === 'text') {
-      sendAiAnalysisAsync(config, openId, message.Content).catch(() => {})
     }
 
     return response;
