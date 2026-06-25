@@ -31,11 +31,57 @@ export default function Page() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: userMsg, history }),
+        body: JSON.stringify({ text: userMsg, history, stream: true }),
       })
-      const data = await res.json()
-      if (data.credits !== undefined) setRemainingCredits(data.credits)
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply || '抱歉，没有获取到回复。' }])
+
+      // 读取积分（流式和 JSON 都通过 X-Credits 头或 JSON body 传递）
+      const credits = res.headers.get('X-Credits')
+      if (credits) setRemainingCredits(Number(credits))
+
+      const contentType = res.headers.get('content-type') || ''
+
+      if (contentType.includes('text/plain') && res.ok && res.body) {
+        // ===== 流式路径 =====
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+
+        // 先插入一条空消息，后面逐字填充
+        setMessages(prev => [...prev, { role: 'assistant', content: '' }])
+
+        let done = false
+        let fullContent = ''
+
+        while (!done) {
+          const { done: readDone, value } = await reader.read()
+          done = readDone
+          if (value) {
+            const chunk = decoder.decode(value, { stream: !done })
+            if (chunk) {
+              fullContent += chunk
+              // 用 fullContent 本地累加，避免闭包竞争
+              setMessages(prev => {
+                const updated = [...prev]
+                updated[updated.length - 1] = { ...updated[updated.length - 1], content: fullContent }
+                return updated
+              })
+            }
+          }
+        }
+
+        // 流为空时的 fallback
+        if (!fullContent) {
+          setMessages(prev => {
+            const updated = [...prev]
+            updated[updated.length - 1] = { ...updated[updated.length - 1], content: '抱歉，AI 分析返回为空，请重试。' }
+            return updated
+          })
+        }
+      } else {
+        // ===== JSON 路径（非流式降级） =====
+        const data = await res.json()
+        if (data.credits !== undefined) setRemainingCredits(data.credits)
+        setMessages(prev => [...prev, { role: 'assistant', content: data.reply || '抱歉，没有获取到回复。' }])
+      }
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，网络错误，请重试。' }])
     } finally {
@@ -144,9 +190,15 @@ export default function Page() {
                 />
               </div>
             ))}
-            {chatLoading && (
-              <div className="text-center text-slate-400 text-sm py-2">🤔 正在查询数据并分析...</div>
-            )}
+            {chatLoading && (() => {
+              const lastAssistant = messages.filter(m => m.role === 'assistant').slice(-1)[0]
+              if (lastAssistant?.content) {
+                // 正在流式输出 → 小字提示
+                return <div className="text-center text-xs text-blue-400 py-1 animate-pulse">⏎ 生成中</div>
+              }
+              // 等待初始数据
+              return <div className="text-center text-slate-400 text-sm py-2">⏳ 正在查询数据并分析...</div>
+            })()}
           </div>
 
           {/* 输入区 */}

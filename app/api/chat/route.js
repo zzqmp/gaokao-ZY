@@ -127,6 +127,88 @@ async function buildAiPromptWithSearch(info, data, years, webResults) {
   return prompt;
 }
 
+// ====== AI 流式输出 ======
+
+/**
+ * 调用 AI 流式 API，返回 DeepSeek/OpenAI 兼容的 SSE 流（ReadableStream）
+ */
+async function createAIStream(apiKey, apiUrl, apiModel, systemPrompt, userPrompt, history) {
+  const resp = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: apiModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-6),
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 2500,
+      stream: true,
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!resp.ok || !resp.body) return null;
+  return resp.body;
+}
+
+/**
+ * 将 AI 的 SSE 流（data: {...}）解析为纯文本 ReadableStream，逐字输出
+ */
+function parseSSEToText(aiBody) {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    async start(controller) {
+      const reader = aiBody.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            // 处理残余 buffer
+            for (const line of buffer.split('\n')) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6).trim();
+                if (data === '[DONE]') continue;
+                try {
+                  const parsed = JSON.parse(data);
+                  const content = parsed.choices?.[0]?.delta?.content || '';
+                  if (content) controller.enqueue(encoder.encode(content));
+                } catch (_) { /* 跳过格式异常行 */ }
+              }
+            }
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 留不完整的行到下次
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content || '';
+                if (content) controller.enqueue(encoder.encode(content));
+              } catch (_) { /* 跳过格式异常行 */ }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[chat stream] read error:', err.message);
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
 // ====== POST 主路由 ======
 
 export async function POST(request) {
@@ -148,7 +230,7 @@ export async function POST(request) {
       }
     }
 
-    const { text, history = [] } = await request.json();
+    const { text, history = [], stream = false } = await request.json();
     if (!text || !text.trim()) {
       return Response.json({ reply: '请说说你的高考情况，我来帮你分析。', complete: false });
     }
@@ -187,6 +269,23 @@ export async function POST(request) {
       const systemPrompt = buildSystemPrompt();
       const userPrompt = await buildAiPromptWithSearch(info, data, years, webResults);
 
+      // ===== 流式路径 =====
+      if (stream) {
+        const aiBody = await createAIStream(apiKey, apiUrl, apiModel, systemPrompt, userPrompt, history);
+        if (aiBody) {
+          const textStream = parseSSEToText(aiBody);
+          return new Response(textStream, {
+            headers: {
+              'Content-Type': 'text/plain; charset=utf-8',
+              'X-Credits': String(creditResult?.credits ?? ''),
+              'X-Complete': 'true',
+            },
+          });
+        }
+        // 流式失败 → 降级到非流式
+      }
+
+      // ===== 非流式路径（原有逻辑） =====
       try {
         const resp = await fetch(apiUrl, {
           method: 'POST',
